@@ -1,0 +1,169 @@
+@import "tailwindcss";
+
+:root {
+  --biscuit: #e8b86d;
+  --biscuit-dark: #c98f3e;
+  --wrapper-yellow: #ffd23f;
+  --wrapper-red: #d7263d;
+  --chai: #a0642b;
+  --chai-milk: #c89b6d;
+  --cream: #fffaf2;
+  --ink: #2b1b0e;
+  --console-bg: #1a120b;
+  --console-fg: #f3e3c3;
+}
+
+@theme inline {
+  --color-biscuit: var(--biscuit);
+  --color-biscuit-dark: var(--biscuit-dark);
+  --color-wrapper-yellow: var(--wrapper-yellow);
+  --color-wrapper-red: var(--wrapper-red);
+  --color-chai: var(--chai);
+  --color-chai-milk: var(--chai-milk);
+  --color-cream: var(--cream);
+  --color-ink: var(--ink);
+  --color-console: var(--console-bg);
+  --color-console-fg: var(--console-fg);
+  --font-display: var(--font-baloo), ui-rounded, system-ui, sans-serif;
+  --font-sans: var(--font-inter), system-ui, sans-serif;
+  --font-mono: var(--font-jetbrains), ui-monospace, monospace;
+
+  /* Fluid type scale: every text-* utility grows smoothly from 360px to 1280px screens. */
+  --text-xs: clamp(0.6875rem, 0.66rem + 0.12vw, 0.75rem);
+  --text-sm: clamp(0.8125rem, 0.78rem + 0.15vw, 0.875rem);
+  --text-base: clamp(0.9375rem, 0.9rem + 0.2vw, 1rem);
+  --text-lg: clamp(1rem, 0.94rem + 0.3vw, 1.125rem);
+  --text-xl: clamp(1.0625rem, 0.97rem + 0.45vw, 1.25rem);
+  --text-2xl: clamp(1.25rem, 1.08rem + 0.75vw, 1.5rem);
+  --text-3xl: clamp(1.5rem, 1.25rem + 1.1vw, 1.875rem);
+  --text-4xl: clamp(1.75rem, 1.4rem + 1.6vw, 2.25rem);
+  --text-5xl: clamp(2rem, 1.5rem + 2.4vw, 3rem);
+  --text-6xl: clamp(2.5rem, 1.8rem + 3.2vw, 3.75rem);
+  --text-7xl: clamp(3rem, 2rem + 4.5vw, 4.5rem);
+  --text-8xl: clamp(3.5rem, 2.2rem + 6vw, 6rem);
+}
+
+html,
+body {
+  background: var(--cream);
+  color: var(--ink);
+}
+
+body {
+  font-family: var(--font-sans);
+  overflow-x: clip; /* nothing may ever cause sideways scrolling */
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Wrapper-style divider: thin red line with a yellow edge */
+.wrapper-band {
+  height: 6px;
+  background:
+    linear-gradient(var(--wrapper-yellow), var(--wrapper-yellow)) bottom / 100% 2px no-repeat,
+    var(--wrapper-red);
+}
+
+@layer components {
+/* Buttons: em-based padding so the whole button scales with its fluid font size. Always one line. */
+.btn-primary {
+  @apply inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-full bg-wrapper-red font-display leading-none font-bold text-white transition hover:brightness-105 active:scale-[0.98] disabled:opacity-60;
+  font-size: clamp(0.9375rem, 0.88rem + 0.35vw, 1.125rem);
+  padding: 0.85em 1.35em;
+}
+.btn-secondary {
+  @apply inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-full border border-ink/15 bg-white font-display text-base leading-none font-bold text-ink transition hover:border-ink/40 active:scale-[0.98];
+  padding: 0.8em 1.3em;
+}
+
+.card-choice {
+  @apply flex min-h-19 min-w-0 flex-col items-start justify-center rounded-2xl border border-ink/10 bg-white p-3 text-left transition hover:border-ink/30;
+}
+/* Single-line text that never wraps; ellipsis only as a last resort on tiny screens. */
+.one-line {
+  @apply min-w-0 max-w-full overflow-hidden text-ellipsis whitespace-nowrap;
+}
+.card-choice[aria-pressed="true"] {
+  @apply border-wrapper-red bg-wrapper-yellow/15 ring-2 ring-wrapper-red/20;
+}
+
+.surface {
+  @apply rounded-3xl border border-ink/10 bg-white;
+}
+}
+
+input[type="range"].chai-range {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 8px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, var(--chai-milk), var(--chai), var(--wrapper-red));
+  outline: none;
+}
+input[type="range"].chai-range::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 28px;
+  height: 28px;
+  border-radius: 999px;
+  background: #fff;
+  border: 3px solid var(--wrapper-red);
+  box-shadow: 0 2px 6px rgb(0 0 0 / 0.15);
+  cursor: grab;
+}
+input[type="range"].chai-range::-moz-range-thumb {
+  width: 28px;
+  height: 28px;
+  border-radius: 999px;
+  background: #fff;
+  border: 3px solid var(--wrapper-red);
+  box-shadow: 0 2px 6px rgb(0 0 0 / 0.15);
+  cursor: grab;
+}
+
+.console-scroll::-webkit-scrollbar {
+  width: 8px;
+}
+.console-scroll::-webkit-scrollbar-thumb {
+  background: #4a3626;
+  border-radius: 8px;
+}
+
+@keyframes blink {
+  50% {
+    opacity: 0;
+  }
+}
+.caret::after {
+  content: "▋";
+  margin-left: 2px;
+  animation: blink 1s steps(1) infinite;
+}
+
+@keyframes scanfill {
+  from {
+    width: 0%;
+  }
+  to {
+    width: 100%;
+  }
+}
+
+@keyframes scan {
+  0% {
+    transform: translateY(-100%);
+  }
+  100% {
+    transform: translateY(100%);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
