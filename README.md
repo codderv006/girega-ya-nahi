@@ -26,7 +26,7 @@ Optional `.env.local` (see `.env.example`):
 | Variable | Effect |
 |---|---|
 | `GEMINI_API_KEY` | Real Gemini vision analysis of the biscuit and chai photos |
-| `GEMINI_MODEL` | Override the model (default `gemini-2.5-flash`) |
+| `GEMINI_MODEL` | Override the model (default `gemini-3.8-flash`; retired models auto-switch to the replacement Google names) |
 | `UPSTASH_REDIS_REST_URL`, `UPSTASH_REDIS_REST_TOKEN` | Persistent leaderboard, results and Bayesian learning |
 | `NEXT_PUBLIC_SITE_URL` | Absolute URL for OG tags once deployed |
 

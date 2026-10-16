@@ -65,25 +65,59 @@ const SCHEMA = {
 };
 
 /** Deterministic pseudo-analysis keyed on the image hash, so the same photo always gets the same verdict. */
+const round = (n: number, dp = 2) => Math.round(n * 10 ** dp) / 10 ** dp;
+
 export function fallbackVision(imageHash: string, hasChai: boolean): VisionResult {
   const rng = mulberry32(seedFromString(imageHash));
   const r = () => rng();
   return {
     biscuit: {
       isGlucoseBiscuit: true,
-      confidence: 0.62 + r() * 0.3,
+      confidence: round(0.62 + r() * 0.3),
       brokenEdges: r() < 0.7 ? 0 : r() < 0.7 ? 1 : 2,
-      thicknessMm: 4.4 + r() * 0.9,
-      defectScore: r() * 0.35,
+      thicknessMm: round(4.4 + r() * 0.9, 1),
+      defectScore: round(r() * 0.35),
       notes: "Offline heuristic analysis. The biscuit declined to comment.",
     },
     chai: hasChai
-      ? { milkiness: 0.35 + r() * 0.5, steamVisible: r() > 0.4, notes: "Colour estimated by vibes." }
+      ? { milkiness: round(0.35 + r() * 0.5), steamVisible: r() > 0.4, notes: "Colour estimated by vibes." }
       : null,
   };
 }
 
 const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
+
+/** Default model; override with GEMINI_MODEL. Google retires old models for new keys. */
+export const DEFAULT_GEMINI_MODEL = "gemini-3.8-flash";
+
+/** Pull a readable message out of the SDK's error (often a JSON blob). */
+function errorMessage(e: unknown): string {
+  const raw = e instanceof Error ? e.message : String(e);
+  try {
+    const j = JSON.parse(raw.slice(raw.indexOf("{")));
+    if (j?.error?.message) return String(j.error.message);
+  } catch {
+    /* not JSON */
+  }
+  return raw;
+}
+
+/** When a model is retired, Google's 404 names its replacement ("use models/<name>"). */
+export function suggestedModel(message: string): string | null {
+  return message.match(/use (?:models\/)?(gemini-[\w.-]+?)[\s.,)]*(?:for|instead|$|\s)/i)?.[1] ?? null;
+}
+
+async function callModel(ai: GoogleGenAI, model: string, parts: { inlineData?: Image; text?: string }[]) {
+  const res = await Promise.race([
+    ai.models.generateContent({
+      model,
+      contents: [{ role: "user", parts }],
+      config: { responseMimeType: "application/json", responseSchema: SCHEMA, temperature: 0.2 },
+    }),
+    new Promise<never>((_, rej) => setTimeout(() => rej(new Error("Gemini timed out after 10s")), 10_000)),
+  ]);
+  return JSON.parse(res.text ?? "{}");
+}
 
 export async function analyzeImages(
   biscuit: Image | undefined,
@@ -97,33 +131,34 @@ export async function analyzeImages(
     return { source: "fallback", result: fallbackVision(imageHash, !!chai), error: "GEMINI_API_KEY not set" };
   }
 
-  const model = process.env.GEMINI_MODEL || "gemini-2.5-flash";
+  let model = process.env.GEMINI_MODEL || DEFAULT_GEMINI_MODEL;
+  const ai = new GoogleGenAI({ apiKey: key });
+  const parts: { inlineData?: Image; text?: string }[] = [{ inlineData: biscuit }];
+  if (chai) parts.push({ inlineData: chai });
+  parts.push({ text: PROMPT });
+
   try {
-    const ai = new GoogleGenAI({ apiKey: key });
-    const parts: { inlineData?: Image; text?: string }[] = [{ inlineData: biscuit }];
-    if (chai) parts.push({ inlineData: chai });
-    parts.push({ text: PROMPT });
+    let raw: Record<string, any>;
+    try {
+      raw = await callModel(ai, model, parts);
+    } catch (e) {
+      // Retired model: retry once with the replacement Google names in the error.
+      const next = suggestedModel(errorMessage(e));
+      if (!next || next === model) throw e;
+      model = next;
+      raw = await callModel(ai, model, parts);
+    }
 
-    const res = await Promise.race([
-      ai.models.generateContent({
-        model,
-        contents: [{ role: "user", parts }],
-        config: { responseMimeType: "application/json", responseSchema: SCHEMA, temperature: 0.2 },
-      }),
-      new Promise<never>((_, rej) => setTimeout(() => rej(new Error("Gemini timed out after 12s")), 12_000)),
-    ]);
-
-    const raw = JSON.parse(res.text ?? "{}");
     // Clamp before validating: models occasionally get creative with ranges.
     if (raw?.biscuit) {
-      raw.biscuit.confidence = clamp(Number(raw.biscuit.confidence) || 0, 0, 1);
+      raw.biscuit.confidence = round(clamp(Number(raw.biscuit.confidence) || 0, 0, 1));
       raw.biscuit.brokenEdges = clamp(Math.round(Number(raw.biscuit.brokenEdges) || 0), 0, 4);
-      raw.biscuit.thicknessMm = clamp(Number(raw.biscuit.thicknessMm) || 4.8, 2, 12);
-      raw.biscuit.defectScore = clamp(Number(raw.biscuit.defectScore) || 0, 0, 1);
+      raw.biscuit.thicknessMm = round(clamp(Number(raw.biscuit.thicknessMm) || 4.8, 2, 12), 1);
+      raw.biscuit.defectScore = round(clamp(Number(raw.biscuit.defectScore) || 0, 0, 1));
       raw.biscuit.notes = String(raw.biscuit.notes ?? "").slice(0, 200);
     }
     if (raw?.chai) {
-      raw.chai.milkiness = clamp(Number(raw.chai.milkiness) || 0.5, 0, 1);
+      raw.chai.milkiness = round(clamp(Number(raw.chai.milkiness) || 0.5, 0, 1));
       raw.chai.notes = String(raw.chai.notes ?? "").slice(0, 200);
     }
     if (!chai) raw.chai = null;
@@ -134,7 +169,7 @@ export async function analyzeImages(
       source: "fallback",
       model,
       result: fallbackVision(imageHash, !!chai),
-      error: e instanceof Error ? e.message.slice(0, 160) : "unknown error",
+      error: errorMessage(e).slice(0, 200),
     };
   }
 }
