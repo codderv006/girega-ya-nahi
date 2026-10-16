@@ -96,13 +96,30 @@ function memoryStore(): Store {
   };
 }
 
+/**
+ * Upstash credentials. The Vercel integration names them `<PREFIX>_REST_API_URL`
+ * with a user-chosen prefix (KV, STORAGE, …), so accept any prefix.
+ */
+function redisEnv(): { url?: string; token?: string } {
+  const env = process.env;
+  if (env.UPSTASH_REDIS_REST_URL && env.UPSTASH_REDIS_REST_TOKEN) {
+    return { url: env.UPSTASH_REDIS_REST_URL, token: env.UPSTASH_REDIS_REST_TOKEN };
+  }
+  for (const key of Object.keys(env)) {
+    if (!key.endsWith("_REST_API_URL")) continue;
+    const prefix = key.slice(0, -"_REST_API_URL".length);
+    const token = env[`${prefix}_REST_API_TOKEN`];
+    if (env[key] && token) return { url: env[key], token };
+  }
+  return {};
+}
+
 // Survive Next.js dev hot reloads.
 const g = globalThis as unknown as { __dunkStore?: Store };
 
 export function getStore(): Store {
   if (g.__dunkStore) return g.__dunkStore;
-  const url = process.env.UPSTASH_REDIS_REST_URL || process.env.KV_REST_API_URL;
-  const token = process.env.UPSTASH_REDIS_REST_TOKEN || process.env.KV_REST_API_TOKEN;
+  const { url, token } = redisEnv();
   g.__dunkStore = url && token ? redisStore(new Redis({ url, token })) : memoryStore();
   return g.__dunkStore;
 }
