@@ -110,6 +110,11 @@ export function DunkFlow() {
                 setRecord(null);
                 setRunKey((k) => k + 1);
               }}
+              onRetake={() => {
+                setBiscuit(null);
+                setBiscuitVision(null);
+                go("scan");
+              }}
               onNext={() => go("test")}
             />
           )}

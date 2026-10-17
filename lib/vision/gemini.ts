@@ -230,7 +230,7 @@ export async function checkBiscuit(
   return { verdict: "unverified", message: "Vision lab is busy, so we checked the colours instead. Looks biscuit-ish.", outcome };
 }
 
-function withArticle(s: string): string {
+export function withArticle(s: string): string {
   const t = s.trim().replace(/\.$/, "");
   if (/^(a|an|the|some)\s/i.test(t)) return t;
   return `${/^[aeiou]/i.test(t) ? "an" : "a"} ${t}`;

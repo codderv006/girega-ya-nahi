@@ -20,6 +20,7 @@ export function PredictStep({
   onRecord,
   onBack,
   onRerun,
+  onRetake,
   onNext,
 }: {
   request: PredictRequest;
@@ -28,10 +29,12 @@ export function PredictStep({
   onRecord: (r: DunkRecord) => void;
   onBack: () => void;
   onRerun: () => void;
+  onRetake: () => void;
   onNext: () => void;
 }) {
   const [stages, setStages] = useState<ConsoleStage[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [notBiscuit, setNotBiscuit] = useState(false);
   const [estimate, setEstimate] = useState<number | null>(null);
   const [sheet, setSheet] = useState<Sheet>("half");
   const reqRef = useRef(request);
@@ -71,6 +74,7 @@ export function PredictStep({
         setSheet("peek");
       } else if (e.type === "error") {
         setError(e.message);
+        setNotBiscuit(e.code === "not-biscuit");
       }
     };
 
@@ -112,9 +116,13 @@ export function PredictStep({
         {record && <ResultCard record={record} onNext={onNext} onRerun={onRerun} />}
         {error && (
           <div className="mx-auto mt-4 w-full max-w-lg rounded-2xl border border-wrapper-red/40 bg-white p-4">
-            <p className="font-display text-lg font-bold text-wrapper-red">The pipeline fell into the chai.</p>
-            <p className="text-sm text-ink/70">{error}</p>
-            <button className="btn-secondary mt-3" onClick={onRerun}>Try again</button>
+            <p className="font-display text-lg font-bold text-wrapper-red">{notBiscuit ? "No biscuit, no prediction." : "The pipeline fell into the chai."}</p>
+            <p className="text-sm text-ink/70">{notBiscuit ? `${error} Please upload a photo of a biscuit.` : error}</p>
+            {notBiscuit ? (
+              <button className="btn-primary mt-3" onClick={onRetake}>📸 Retake the photo</button>
+            ) : (
+              <button className="btn-secondary mt-3" onClick={onRerun}>Try again</button>
+            )}
           </div>
         )}
       </div>

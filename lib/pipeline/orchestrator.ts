@@ -8,12 +8,23 @@ import { posterior, PRIOR_SD, OBS_SD } from "../physics/bayes";
 import { STYLE_MECHANICS, sectionModulus } from "../physics/structural";
 import { effectiveTemp, newtonCooling, VESSEL_THERMAL } from "../physics/thermal";
 import { penetrationDepth } from "../physics/washburn";
-import { analyzeImages, type VisionOutcome } from "../vision/gemini";
+import { analyzeImages, withArticle, type VisionOutcome } from "../vision/gemini";
 import { getStore } from "../store";
 import type { DunkRecord, PipelineEvent, Prediction, StageEvent } from "../types";
 import { mulberry32, seedFromString } from "../physics/rng";
 
 export const MC_SAMPLES = 5000;
+
+/** Raised when vision is confident the photo isn't a biscuit; the client asks for a retake. */
+export class NotABiscuitError extends Error {
+  readonly code = "not-biscuit" as const;
+}
+
+/** Only a real Gemini "no" counts; offline heuristics never block a dunk. */
+function isBiscuit(v: VisionOutcome): boolean {
+  if (v.source !== "gemini") return true;
+  return v.result.biscuit.isBiscuit ?? v.result.biscuit.isGlucoseBiscuit;
+}
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const r3 = (n: number) => Number(n.toPrecision(4));
@@ -100,11 +111,12 @@ export async function runPipeline(body: unknown, emit: Emit, opts: { pace?: bool
     }
     const logs: string[] = [];
     if (cached) logs.push("Reusing the scan-time biscuit inspection (one Gemini call per dunk).");
-    if (v.source === "gemini") logs.push(`Model: ${v.model}`, `“${v.result.biscuit.notes}”`);
+    if (v.source === "gemini") logs.push(`Model: ${v.model ?? "gemini"}`, `“${v.result.biscuit.notes}”`);
     else if (v.source === "standard-issue") logs.push("No photo provided. Using a standard-issue biscuit from the reference vault.");
     else logs.push(`Gemini unavailable (${v.error}). Falling back to deterministic offline heuristics.`);
     if (v.result.chai) logs.push(`Chai: “${v.result.chai.notes}”`);
-    if (!v.result.biscuit.isGlucoseBiscuit) logs.push("⚠ That does not look like a glucose biscuit. Proceeding anyway, under protest.");
+    if (isBiscuit(v) && !v.result.biscuit.isGlucoseBiscuit) logs.push("⚠ A biscuit, but not a glucose one. Proceeding anyway, under protest.");
+    if (!isBiscuit(v)) logs.push(`✗ Not a biscuit: ${v.result.biscuit.subject || "unidentified object"}. Halting.`);
     return {
       value: v,
       formula: "gemini.generateContent([biscuit, chai?], responseSchema) → JSON",
@@ -113,6 +125,11 @@ export async function runPipeline(body: unknown, emit: Emit, opts: { pace?: bool
       logs,
     };
   });
+  // Hard stop: no predictions for things Gemini says aren't biscuits, whatever the client did.
+  if (!isBiscuit(vision)) {
+    const what = vision.result.biscuit.subject;
+    throw new NotABiscuitError(what && !/biscuit|cookie/i.test(what) ? `That looks like ${withArticle(what)}, not a biscuit.` : "That doesn't look like a biscuit.");
+  }
   const obs = vision.result.biscuit;
   const milkiness = vision.result.chai?.milkiness;
 

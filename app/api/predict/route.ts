@@ -1,5 +1,5 @@
 import { ZodError } from "zod";
-import { runPipeline } from "@/lib/pipeline/orchestrator";
+import { NotABiscuitError, runPipeline } from "@/lib/pipeline/orchestrator";
 import type { PipelineEvent } from "@/lib/types";
 
 export const runtime = "nodejs";
@@ -29,6 +29,10 @@ export async function POST(request: Request) {
       try {
         await runPipeline(body, send);
       } catch (e) {
+        if (e instanceof NotABiscuitError) {
+          send({ type: "error", code: e.code, message: e.message });
+          return;
+        }
         const message =
           e instanceof ZodError
             ? `Validation failed: ${e.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; ")}`

@@ -58,4 +58,4 @@ export type PipelineEvent =
   | { type: "stage-start"; index: number; id: string; name: string }
   | { type: "stage-done"; stage: StageEvent }
   | { type: "result"; record: DunkRecord }
-  | { type: "error"; message: string };
+  | { type: "error"; message: string; code?: "not-biscuit" };
