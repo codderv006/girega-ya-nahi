@@ -18,6 +18,7 @@ export const PredictRequest = z.object({
   style: z.enum(ids(DUNK_STYLES)),
   biscuitImage: ImagePayload.optional(),
   chaiImage: ImagePayload.optional(),
+  biscuitVision: z.lazy(() => CachedVision).optional(),
 });
 export type PredictRequest = z.infer<typeof PredictRequest>;
 
@@ -37,6 +38,12 @@ export type ResultRequest = z.infer<typeof ResultRequest>;
 export const VisionResult = z.object({
   biscuit: z.object({
     isGlucoseBiscuit: z.boolean(),
+    /** Any biscuit/cookie at all (a Marie still counts; a mug does not). */
+    isBiscuit: z.boolean().optional(),
+    /** Photographed face-on from above (not edge-on). */
+    isTopView: z.boolean().optional(),
+    /** What the photo actually shows, in a few words. */
+    subject: z.string().max(60).optional(),
     confidence: z.number().min(0).max(1),
     brokenEdges: z.number().int().min(0).max(4),
     thicknessMm: z.number().min(2).max(12),
@@ -52,3 +59,24 @@ export const VisionResult = z.object({
     .nullable(),
 });
 export type VisionResult = z.infer<typeof VisionResult>;
+
+/** Scan-time vision analysis, reused by the pipeline so Gemini is called once per dunk. */
+export const CachedVision = z.object({
+  source: z.enum(["gemini", "fallback"]),
+  model: z.string().max(60).optional(),
+  biscuit: VisionResult.shape.biscuit,
+});
+export type CachedVision = z.infer<typeof CachedVision>;
+
+export const VisionCheckRequest = z.object({
+  image: ImagePayload,
+  /** On-device fraction of biscuit-coloured pixels (0..1), the offline fallback signal. */
+  colourScore: z.number().min(0).max(1),
+});
+
+export type VisionVerdict = "biscuit" | "not-biscuit" | "side-view" | "unverified";
+export interface VisionCheckResponse {
+  verdict: VisionVerdict;
+  message: string;
+  vision: CachedVision;
+}

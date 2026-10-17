@@ -8,7 +8,7 @@ import { posterior, PRIOR_SD, OBS_SD } from "../physics/bayes";
 import { STYLE_MECHANICS, sectionModulus } from "../physics/structural";
 import { effectiveTemp, newtonCooling, VESSEL_THERMAL } from "../physics/thermal";
 import { penetrationDepth } from "../physics/washburn";
-import { analyzeImages } from "../vision/gemini";
+import { analyzeImages, type VisionOutcome } from "../vision/gemini";
 import { getStore } from "../store";
 import type { DunkRecord, PipelineEvent, Prediction, StageEvent } from "../types";
 import { mulberry32, seedFromString } from "../physics/rng";
@@ -84,8 +84,22 @@ export async function runPipeline(body: unknown, emit: Emit, opts: { pace?: bool
 
   // 2 ────────────────────────────────────────────────────────────────
   const vision = await stage(2, "vision", "Vision Analysis (Gemini)", async () => {
-    const v = await analyzeImages(req.biscuitImage, req.chaiImage, imageHash);
+    // The biscuit was already inspected at scan time; only call Gemini again for a chai photo.
+    const cached = req.biscuitImage ? req.biscuitVision : undefined;
+    let v: VisionOutcome;
+    if (cached && !req.chaiImage) {
+      v = {
+        source: cached.source,
+        model: cached.model,
+        result: { biscuit: cached.biscuit, chai: null },
+        error: cached.source === "fallback" ? "vision lab was busy at scan time" : undefined,
+      };
+    } else {
+      v = await analyzeImages(req.biscuitImage, req.chaiImage, imageHash);
+      if (cached?.source === "gemini") v = { ...v, result: { ...v.result, biscuit: cached.biscuit } };
+    }
     const logs: string[] = [];
+    if (cached) logs.push("Reusing the scan-time biscuit inspection (one Gemini call per dunk).");
     if (v.source === "gemini") logs.push(`Model: ${v.model}`, `“${v.result.biscuit.notes}”`);
     else if (v.source === "standard-issue") logs.push("No photo provided. Using a standard-issue biscuit from the reference vault.");
     else logs.push(`Gemini unavailable (${v.error}). Falling back to deterministic offline heuristics.`);

@@ -4,6 +4,7 @@ import { AnimatePresence, motion } from "framer-motion";
 import { useRef, useState } from "react";
 import type { PreparedImage } from "@/lib/client/image";
 import type { DunkRecord } from "@/lib/types";
+import type { CachedVision } from "@/lib/schemas";
 import { SiteHeader } from "./SiteHeader";
 import { defaultSceneState, type SceneState } from "./three/types";
 import { ScanStep } from "./steps/ScanStep";
@@ -26,6 +27,7 @@ export const DEFAULT_SETUP: Setup = { chaiType: "cutting", vessel: "mug", tempC:
 export function DunkFlow() {
   const [step, setStep] = useState<Step>("scan");
   const [biscuit, setBiscuit] = useState<PreparedImage | null>(null);
+  const [biscuitVision, setBiscuitVision] = useState<CachedVision | null>(null);
   const [chai, setChai] = useState<PreparedImage | null>(null);
   const [setup, setSetup] = useState<Setup>(DEFAULT_SETUP);
   const [record, setRecord] = useState<DunkRecord | null>(null);
@@ -66,10 +68,13 @@ export function DunkFlow() {
           {step === "scan" && (
             <ScanStep
               image={biscuit}
+              vision={biscuitVision}
               onImage={setBiscuit}
+              onVision={setBiscuitVision}
               onNext={() => go("setup")}
               onSkip={() => {
                 setBiscuit(null);
+                setBiscuitVision(null);
                 go("setup");
               }}
             />
@@ -94,6 +99,7 @@ export function DunkFlow() {
               request={{
                 ...setup,
                 biscuitImage: biscuit ? { mimeType: biscuit.mimeType, data: biscuit.data } : undefined,
+                biscuitVision: biscuit && biscuitVision ? biscuitVision : undefined,
                 chaiImage: chai ? { mimeType: chai.mimeType, data: chai.data } : undefined,
               }}
               scene={scene}

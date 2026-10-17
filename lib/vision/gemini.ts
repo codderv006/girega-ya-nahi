@@ -1,6 +1,7 @@
 import { GoogleGenAI, Type } from "@google/genai";
 import { VisionResult } from "../schemas";
 import { mulberry32, seedFromString } from "../physics/rng";
+import { MIN_COLOUR_SCORE } from "./threshold";
 
 type Image = { mimeType: string; data: string };
 
@@ -26,6 +27,9 @@ export const STANDARD_ISSUE: VisionResult = {
 const PROMPT = `You are the vision subsystem of a dead-serious biscuit dunking physics lab.
 Image 1 is a biscuit (ideally a rectangular glucose biscuit). Image 2, if present, is a cup of chai.
 Return strict JSON only:
+- biscuit.subject: what image 1 actually shows, in 1-4 plain words (e.g. "glucose biscuit", "coffee mug", "a cat")
+- biscuit.isBiscuit: is image 1 a biscuit or cookie of any kind? (false for anything else, including cake, bread, a biscuit packet or a screen)
+- biscuit.isTopView: is the biscuit photographed face-on from above, with its flat face visible? (false if edge-on / side view)
 - biscuit.isGlucoseBiscuit: is it a plain rectangular glucose biscuit?
 - biscuit.confidence: 0..1
 - biscuit.brokenEdges: number of visibly broken/chipped edges (0-4)
@@ -33,7 +37,7 @@ Return strict JSON only:
 - biscuit.defectScore: 0..1 cracks, chips, crumbling
 - biscuit.notes: one short, deadpan scientific remark about the biscuit (max 20 words)
 - chai: null if no chai image; else milkiness 0..1 (0 = black tea, 1 = basically milk), steamVisible, notes (one deadpan remark, max 20 words)
-If image 1 is not a biscuit, set isGlucoseBiscuit false and still estimate the fields as if it were going to be dunked.`;
+If image 1 is not a biscuit, set isBiscuit and isGlucoseBiscuit false and still fill the other fields with plausible values.`;
 
 const SCHEMA = {
   type: Type.OBJECT,
@@ -41,6 +45,9 @@ const SCHEMA = {
     biscuit: {
       type: Type.OBJECT,
       properties: {
+        subject: { type: Type.STRING },
+        isBiscuit: { type: Type.BOOLEAN },
+        isTopView: { type: Type.BOOLEAN },
         isGlucoseBiscuit: { type: Type.BOOLEAN },
         confidence: { type: Type.NUMBER },
         brokenEdges: { type: Type.INTEGER },
@@ -48,7 +55,7 @@ const SCHEMA = {
         defectScore: { type: Type.NUMBER },
         notes: { type: Type.STRING },
       },
-      required: ["isGlucoseBiscuit", "confidence", "brokenEdges", "thicknessMm", "defectScore", "notes"],
+      required: ["subject", "isBiscuit", "isTopView", "isGlucoseBiscuit", "confidence", "brokenEdges", "thicknessMm", "defectScore", "notes"],
     },
     chai: {
       type: Type.OBJECT,
@@ -102,6 +109,11 @@ function errorMessage(e: unknown): string {
   return raw;
 }
 
+/** Transient capacity errors worth one retry (503 overloaded, 429 rate limit). */
+export function isOverloaded(message: string): boolean {
+  return /\b(503|429)\b|overload|unavailable|resource.?exhausted|high demand|rate limit|try again later/i.test(message);
+}
+
 /** When a model is retired, Google's 404 names its replacement ("use models/<name>"). */
 export function suggestedModel(message: string): string | null {
   return message.match(/use (?:models\/)?(gemini-[\w.-]+?)[\s.,)]*(?:for|instead|$|\s)/i)?.[1] ?? null;
@@ -142,10 +154,17 @@ export async function analyzeImages(
     try {
       raw = await callModel(ai, model, parts);
     } catch (e) {
-      // Retired model: retry once with the replacement Google names in the error.
-      const next = suggestedModel(errorMessage(e));
-      if (!next || next === model) throw e;
-      model = next;
+      const msg = errorMessage(e);
+      const next = suggestedModel(msg);
+      if (next && next !== model) {
+        // Retired model: retry once with the replacement Google names in the error.
+        model = next;
+      } else if (isOverloaded(msg)) {
+        // Busy or rate-limited: one short back-off, then a second try.
+        await new Promise((r) => setTimeout(r, 900));
+      } else {
+        throw e;
+      }
       raw = await callModel(ai, model, parts);
     }
 
@@ -156,6 +175,7 @@ export async function analyzeImages(
       raw.biscuit.thicknessMm = round(clamp(Number(raw.biscuit.thicknessMm) || 4.8, 2, 12), 1);
       raw.biscuit.defectScore = round(clamp(Number(raw.biscuit.defectScore) || 0, 0, 1));
       raw.biscuit.notes = String(raw.biscuit.notes ?? "").slice(0, 200);
+      raw.biscuit.subject = String(raw.biscuit.subject ?? "").slice(0, 60);
     }
     if (raw?.chai) {
       raw.chai.milkiness = round(clamp(Number(raw.chai.milkiness) || 0.5, 0, 1));
@@ -172,4 +192,46 @@ export async function analyzeImages(
       error: errorMessage(e).slice(0, 200),
     };
   }
+}
+
+
+/**
+ * Scan-time gatekeeper: is this photo a biscuit, shot from above?
+ * Gemini decides when it can; if it is down or overloaded, the on-device colour
+ * score still catches obvious non-biscuits.
+ */
+export async function checkBiscuit(
+  image: Image,
+  colourScore: number,
+  imageHash: string,
+): Promise<{ verdict: "biscuit" | "not-biscuit" | "side-view" | "unverified"; message: string; outcome: VisionOutcome }> {
+  const outcome = await analyzeImages(image, undefined, imageHash);
+  const b = outcome.result.biscuit;
+
+  if (outcome.source === "gemini") {
+    const isBiscuit = b.isBiscuit ?? b.isGlucoseBiscuit;
+    if (!isBiscuit) {
+      const what = b.subject && !/biscuit|cookie/i.test(b.subject) ? b.subject : null;
+      return {
+        verdict: "not-biscuit",
+        message: what ? `That looks like ${withArticle(what)}, not a biscuit.` : "That doesn't look like a biscuit.",
+        outcome,
+      };
+    }
+    if (b.isTopView === false) {
+      return { verdict: "side-view", message: "That's the edge of the biscuit. We need its face, shot from directly above.", outcome };
+    }
+    return { verdict: "biscuit", message: b.notes || "Biscuit confirmed.", outcome };
+  }
+
+  if (colourScore < MIN_COLOUR_SCORE) {
+    return { verdict: "not-biscuit", message: "Our colour sensors can't find any biscuit in that photo.", outcome };
+  }
+  return { verdict: "unverified", message: "Vision lab is busy, so we checked the colours instead. Looks biscuit-ish.", outcome };
+}
+
+function withArticle(s: string): string {
+  const t = s.trim().replace(/\.$/, "");
+  if (/^(a|an|the|some)\s/i.test(t)) return t;
+  return `${/^[aeiou]/i.test(t) ? "an" : "a"} ${t}`;
 }
